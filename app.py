@@ -12,9 +12,30 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 HISTORY_FILE = Path(__file__).parent / "history.json"
 
-from core.inference import infer_with_qwen_or_mock
+from core.inference import (
+    PROVIDER_ANTHROPIC,
+    PROVIDER_DEFAULTS,
+    PROVIDER_GEMINI,
+    PROVIDER_OPENAI,
+    PROVIDER_QWEN,
+    infer_with_provider,
+)
 from core.local_hybrid import local_hybrid_artifacts_available
 from src.mock_engine import load_class_labels, resolve_dataset_root
+
+PROVIDER_LABELS: dict[str, str] = {
+    PROVIDER_QWEN: "Qwen-VL（阿里云通义千问）",
+    PROVIDER_OPENAI: "OpenAI（GPT-4o）",
+    PROVIDER_ANTHROPIC: "Anthropic（Claude）",
+    PROVIDER_GEMINI: "Google Gemini",
+}
+
+PROVIDER_ENV_KEY: dict[str, str] = {
+    PROVIDER_QWEN: "QWEN_API_KEY",
+    PROVIDER_OPENAI: "OPENAI_API_KEY",
+    PROVIDER_ANTHROPIC: "ANTHROPIC_API_KEY",
+    PROVIDER_GEMINI: "GOOGLE_API_KEY",
+}
 
 NORMALIZED_SIZE = 512
 
@@ -216,36 +237,86 @@ def _render_settings_page(dataset_root: str, labels: list[str]) -> None:
     st.markdown("---")
 
     st.subheader("API 配置")
+
+    provider_options = list(PROVIDER_LABELS.keys())
+    current_provider = st.session_state.get(
+        "provider", os.getenv("PREFERRED_PROVIDER", PROVIDER_QWEN)
+    )
+    if current_provider not in provider_options:
+        current_provider = PROVIDER_QWEN
+
+    provider = provider_options[
+        st.selectbox(
+            "模型提供商",
+            range(len(provider_options)),
+            index=provider_options.index(current_provider),
+            format_func=lambda i: PROVIDER_LABELS[provider_options[i]],
+        )
+    ]
+    st.session_state.provider = provider
+
+    env_key_name = PROVIDER_ENV_KEY[provider]
     api_key = st.text_input(
-        "QWEN_API_KEY（可留空触发本地推理）",
-        value=st.session_state.get("api_key", os.getenv("QWEN_API_KEY", "")),
+        f"API Key（{env_key_name}）",
+        value=st.session_state.get("api_key", os.getenv(env_key_name, "")),
         type="password",
+        help=f"留空则自动使用本地推理。对应环境变量：{env_key_name}",
     )
     st.session_state.api_key = api_key
 
+    defaults = PROVIDER_DEFAULTS[provider]
     model = st.text_input(
-        "Qwen-VL 模型名",
-        value=st.session_state.get("model", "qwen-vl-max-latest"),
+        "模型名称",
+        value=st.session_state.get("model", defaults["model"]),
+        help=f"默认：{defaults['model']}",
     )
     st.session_state.model = model
 
     base_url = st.text_input(
         "API Base URL",
-        value=st.session_state.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        value=st.session_state.get("base_url", defaults["base_url"]),
+        help=f"默认：{defaults['base_url']}",
     )
     st.session_state.base_url = base_url
 
     timeout = st.slider(
         "API 超时（秒）",
         min_value=10,
-        max_value=90,
+        max_value=120,
         value=st.session_state.get("timeout", 40),
         step=5,
     )
     st.session_state.timeout = timeout
 
     st.markdown("---")
-    st.info("配置已自动保存到当前会话。")
+
+    st.subheader("各供应商说明")
+    with st.expander("Qwen-VL", expanded=False):
+        st.markdown("""
+- 申请地址：https://bailian.console.aliyun.com/
+- 环境变量：`QWEN_API_KEY`
+- 默认模型：`qwen-vl-max-latest`
+        """)
+    with st.expander("OpenAI", expanded=False):
+        st.markdown("""
+- 申请地址：https://platform.openai.com
+- 环境变量：`OPENAI_API_KEY`
+- 默认模型：`gpt-4o`
+        """)
+    with st.expander("Anthropic", expanded=False):
+        st.markdown("""
+- 申请地址：https://console.anthropic.com
+- 环境变量：`ANTHROPIC_API_KEY`
+- 默认模型：`claude-3-5-sonnet-20241022`
+        """)
+    with st.expander("Google Gemini", expanded=False):
+        st.markdown("""
+- 申请地址：https://aistudio.google.com
+- 环境变量：`GOOGLE_API_KEY`
+- 默认模型：`gemini-1.5-pro-latest`
+        """)
+
+    st.info("配置已自动保存到当前会话，刷新页面后重置为环境变量默认值。")
 
 
 def _render_history_panel(col) -> None:
@@ -553,10 +624,14 @@ def main() -> None:
         return
 
     # Get config from session state or env
+    provider = st.session_state.get("provider", os.getenv("PREFERRED_PROVIDER", PROVIDER_QWEN))
+    if provider not in PROVIDER_LABELS:
+        provider = PROVIDER_QWEN
+    env_key = PROVIDER_ENV_KEY[provider]
     local_model_dir = st.session_state.get("local_model_dir", os.getenv("LOCAL_MODEL_DIR", "artifacts"))
-    api_key = st.session_state.get("api_key", os.getenv("QWEN_API_KEY", ""))
-    model = st.session_state.get("model", "qwen-vl-max-latest")
-    base_url = st.session_state.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    api_key = st.session_state.get("api_key", os.getenv(env_key, ""))
+    model = st.session_state.get("model", PROVIDER_DEFAULTS[provider]["model"])
+    base_url = st.session_state.get("base_url", PROVIDER_DEFAULTS[provider]["base_url"])
     timeout = st.session_state.get("timeout", 40)
 
     # Main content
@@ -595,11 +670,12 @@ def main() -> None:
         st.stop()
 
     with st.spinner("模型推理中，请稍候..."):
-        result, debug_errors = infer_with_qwen_or_mock(
+        result, debug_errors = infer_with_provider(
             image_bytes=image_bytes,
             mime_type=mime_type,
             symptom_text=symptom_text,
             labels=labels,
+            provider=provider,
             api_key=api_key or None,
             model=model,
             base_url=base_url,

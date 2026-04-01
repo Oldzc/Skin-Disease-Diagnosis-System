@@ -42,8 +42,19 @@ $env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
 
 系统自动将表单选项拼接为标准化文本（如 "慢性，面部，剧烈瘙痒，无疼痛，日晒诱因，红斑，反复发作，老年。"），传入推理引擎。
 
-### 2. 三级推理降级链
-1. **qwen_vl_api**（优先）：调用阿里 Qwen-VL 多模态大模型 API，图文联合推理
+### 2. 多模型 API 支持 + 三级推理降级链
+
+系统支持 4 个大模型提供商，在设置页面一键切换：
+
+| 提供商 | 环境变量 | 默认模型 | 接口类型 |
+|--------|----------|----------|----------|
+| Qwen-VL（阿里云） | `QWEN_API_KEY` | `qwen-vl-max-latest` | OpenAI-compatible |
+| OpenAI（GPT-4o） | `OPENAI_API_KEY` | `gpt-4o` | OpenAI-compatible |
+| Anthropic（Claude） | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-20241022` | Anthropic Messages API |
+| Google Gemini | `GOOGLE_API_KEY` | `gemini-1.5-pro-latest` | Generative Language API |
+
+推理降级顺序：
+1. **大模型 API**（配置了 API Key 时优先）：图文联合推理，返回 Top-3 候选
 2. **local_hybrid**（智能兜底）：本地融合推理
    - 图像分支：MobileNetV3-Small（预训练 ImageNet，微调分类头）
    - 文本分支：基于规则的关键词/部位/病程/严重度/瘙痒/疼痛/诱因/皮损形态/复发/年龄加权打分
@@ -71,7 +82,8 @@ $env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
 - **设置页面**（点击按钮进入）：
   - 数据集信息（只读）
   - 本地模型配置（目录路径 + 工件检测状态）
-  - API 配置（API Key、模型名、Base URL、超时）
+  - API 配置：选择提供商 → 填入对应 API Key → 模型名 / Base URL / 超时
+  - 各提供商申请地址与说明
   - 配置自动保存到 session state
 
 ## 数据目录要求
@@ -99,10 +111,32 @@ Acne, Actinic_Keratosis, Benign_tumors, Bullous, Candidiasis, DrugEruption, Ecze
 - `scikit-learn>=1.4.0` — 评测指标
 - `joblib>=1.3.0` — 模型序列化
 
-### 2. 可选配置
+### 2. 配置 API Key
+
+复制 `.env.example` 为 `.env`，填入你的 API Key（`.env` 已在 `.gitignore` 中，不会上传）：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入对应的 API Key
+```
+
+或直接设置环境变量（四选一，留空则自动使用本地推理）：
+
 ```powershell
-# API Key（留空则自动使用本地推理）
-$env:QWEN_API_KEY="your_key_here"
+# Qwen-VL（阿里云通义千问）
+$env:QWEN_API_KEY="sk-xxxxxxxxxxxxxxxx"
+
+# OpenAI（GPT-4o）
+$env:OPENAI_API_KEY="sk-xxxxxxxxxxxxxxxx"
+
+# Anthropic（Claude）
+$env:ANTHROPIC_API_KEY="sk-ant-xxxxxxxxxxxxxxxx"
+
+# Google Gemini
+$env:GOOGLE_API_KEY="AIzaxxxxxxxxxxxxxxxx"
+
+# 指定默认提供商（可选，默认 qwen）
+$env:PREFERRED_PROVIDER="openai"   # qwen / openai / anthropic / gemini
 
 # 本地模型目录（默认 artifacts）
 $env:LOCAL_MODEL_DIR="artifacts"
@@ -114,11 +148,12 @@ $env:LOCAL_MODEL_DIR="artifacts"
 ```
 
 访问 `http://localhost:8501`，按以下步骤使用：
-1. 上传皮肤图片（JPG/PNG）
-2. 填写 8 个结构化症状字段
-3. 勾选隐私声明复选框
-4. 点击"开始分析"
-5. 查看结果：初步诊断、置信度、Top-3 候选、决策轨迹
+1. 点击侧边栏"⚙️ 运行配置"，选择模型提供商并填入 API Key
+2. 上传皮肤图片（JPG/PNG）
+3. 填写 8 个结构化症状字段
+4. 勾选隐私声明复选框
+5. 点击"开始分析"
+6. 查看结果：初步诊断、置信度、Top-3 候选、决策轨迹
 
 ## 本地模型训练
 
@@ -277,11 +312,11 @@ P_final = α * P_image + β * P_text + γ * P_prior
 A: 
 1. 确保图片清晰、光线充足、病灶居中
 2. 尽量填写完整的结构化症状信息
-3. 使用 Qwen-VL API（需配置 API Key）
+3. 使用大模型 API（在设置页面配置 API Key）
 4. 增加训练数据并重新训练本地模型
 
 **Q: 历史记录存在哪里？**
-A: `history.json` 文件（项目根目录），超过 7 天自动清理
+A: `history.json` 文件（项目根目录），超过 7 天自动清理，已在 `.gitignore` 中排除，不会上传到代码仓库
 
 **Q: 如何导出历史记录？**
 A: 直接复制 `history.json` 文件，或在侧边栏使用"清空全部历史"前手动备份
@@ -292,8 +327,14 @@ A:
 2. 替换 `artifacts/local_model.pkl` 和 `artifacts/label_map.json`
 3. 重启应用
 
-**Q: 如何禁用 API 调用？**
-A: 不设置 `QWEN_API_KEY` 环境变量，或在设置页面清空 API Key 输入框
+**Q: 如何切换大模型提供商？**
+A: 点击侧边栏"⚙️ 运行配置"，在"模型提供商"下拉框中选择，填入对应 API Key 即可
+
+**Q: 如何使用第三方 OpenAI 中转服务？**
+A: 选择 OpenAI 提供商，将 Base URL 改为中转服务地址（如 `https://api.example.com/v1`），填入中转服务的 API Key
+
+**Q: 如何禁用 API 调用，只用本地推理？**
+A: 在设置页面清空 API Key 输入框，或不设置任何 API Key 环境变量
 
 **Q: 如何查看决策轨迹？**
 A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
@@ -302,9 +343,64 @@ A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
 - 否定信号（negated_signals）
 - 图像模型信息
 
+## 开源上传指南
+
+上传到 GitHub / Gitee 等开源平台前，请确认以下检查项：
+
+### 必须排除的文件（已在 `.gitignore` 中配置）
+- `.env` — 包含真实 API Key
+- `history.json` — 包含真实诊断记录
+- `artifacts/local_model.pkl` — 模型权重文件（体积大，~6MB）
+- `artifacts/train_manifest.csv` / `test_manifest.csv` — 数据集路径清单
+- `Dataset/` — 数据集目录（体积大）
+- `.vscode/` / `.claude/` — 本地 IDE 配置
+
+### 可以上传的文件
+- 所有 `.py` 源代码
+- `artifacts/label_map.json` — 标签映射（无隐私）
+- `artifacts/metrics.json` — 训练指标（无隐私）
+- `.env.example` — API Key 配置模板
+- `requirements.txt` — 依赖列表
+- `README.md` — 项目文档
+- `.gitignore` — 排除规则
+
+### 初始化 Git 仓库并上传
+
+```bash
+# 1. 初始化仓库
+git init
+git add .
+git commit -m "Initial commit: skin disease screening prototype"
+
+# 2. 关联远程仓库（以 GitHub 为例）
+git remote add origin https://github.com/your-username/your-repo.git
+git branch -M main
+git push -u origin main
+```
+
+### 上传前最终检查
+
+```bash
+# 确认 .env 不在暂存区
+git status
+
+# 确认 history.json 不在暂存区（应显示为 ignored）
+git check-ignore -v history.json
+
+# 查看将要上传的文件列表
+git ls-files
+```
+
 ## 更新日志
 
-### v2.0（当前版本）
+### v2.1（当前版本）
+- ✨ 新增多模型 API 支持（OpenAI GPT-4o / Anthropic Claude / Google Gemini）
+- ✨ 新增 `.gitignore` 和 `.env.example`，支持安全开源上传
+- 🔧 重构推理引擎为统一 `infer_with_provider()` 接口
+- 🔧 设置页面新增提供商选择和各平台申请说明
+- 🐛 清空 `history.json` 中的测试诊断记录
+
+### v2.0
 - ✨ 新增结构化症状输入（8 个字段）
 - ✨ 新增历史记录管理（本地存储 + 检索 + 7 天过期）
 - ✨ 新增隐私保护机制（EXIF 剥离 + 知情同意）
@@ -313,7 +409,7 @@ A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
 - 🔧 优化 UI 布局（sidebar 历史记录 + 主页面输入/结果）
 - 🐛 修复 EXIF 元数据泄露问题
 
-### v1.0（旧版）
+### v1.0
 - 基础功能：图片上传 + 自由文本输入 + 三级推理降级
 - 本地模型训练 + 评测脚本
 
