@@ -1,0 +1,34 @@
+[
+  {
+    "time": "2026-04-01 18:14:39",
+    "filename": "161__ProtectWyJQcm90ZWN0Il0_FocusFillWzI5NCwyMjIsIngiLDFd.jpeg",
+    "symptom_text": "慢性，躯干，无瘙痒，无疼痛，青年。",
+    "form_data": {
+      "duration": "慢性（数周以上）",
+      "location": "躯干",
+      "itch": "无",
+      "pain": "无",
+      "trigger": "不明",
+      "morphology": "其他",
+      "recurrence": "不确定",
+      "age": "青年（14-35）"
+    },
+    "primary_diagnosis": "Acne",
+    "confidence": 0.85,
+    "source": "qwen_vl_api",
+    "top3_candidates": [
+      {
+        "label": "Acne",
+        "score": 0.85
+      },
+      {
+        "label": "Eczema",
+        "score": 0.1
+      },
+      {
+        "label": "DrugEruption",
+        "score": 0.05
+      }
+    ]
+  }
+]

@@ -1,2 +1,321 @@
-# Skin-Disease-Diagnosis-System
-A system for preliminary screening of skin diseases using the Qwen large language model and MobileNet
+﻿# 皮肤疾病初筛演示原型（增强版）
+
+## 项目目标
+输入一张皮肤图片 + 结构化症状信息，输出结构化初步筛查结果（辅助筛查，不用于临床确诊）。
+
+```json
+{
+  "primary_diagnosis": "Eczema",
+  "confidence": 0.78,
+  "source": "qwen_vl_api | local_hybrid | local_mock",
+  "mock_result": false,
+  "note": "初步筛查结果，非临床诊断结论",
+  "top3_candidates": [
+    {"label": "Eczema", "score": 0.78},
+    {"label": "Psoriasis", "score": 0.11},
+    {"label": "Tinea", "score": 0.06}
+  ],
+  "decision_trace": {}
+}
+```
+
+## Python环境（固定）
+后续统一使用：`D:\anaconda3\envs\env_disease_detect_1\python.exe`
+
+```powershell
+$env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
+& $env:PROJECT_PY --version
+```
+
+## 核心功能
+
+### 1. 结构化症状输入
+用户通过 8 个结构化字段填写症状信息，替代自由文本输入：
+- **病程**：急性（近几天）/ 慢性（数周以上）/ 不确定
+- **部位**：面部 / 躯干 / 四肢 / 头皮 / 其他
+- **瘙痒程度**：无 / 轻微 / 中度 / 剧烈
+- **疼痛程度**：无 / 轻微 / 中度 / 剧烈
+- **诱因**：日晒 / 用药后 / 虫咬 / 接触刺激物 / 不明
+- **皮损形态**：红斑 / 鳞屑 / 水疱 / 溃疡 / 丘疹 / 色素改变 / 其他
+- **是否复发**：首次发作 / 反复发作 / 不确定
+- **年龄段**：儿童（<14）/ 青年（14-35）/ 中年（36-59）/ 老年（≥60）
+
+系统自动将表单选项拼接为标准化文本（如 "慢性，面部，剧烈瘙痒，无疼痛，日晒诱因，红斑，反复发作，老年。"），传入推理引擎。
+
+### 2. 三级推理降级链
+1. **qwen_vl_api**（优先）：调用阿里 Qwen-VL 多模态大模型 API，图文联合推理
+2. **local_hybrid**（智能兜底）：本地融合推理
+   - 图像分支：MobileNetV3-Small（预训练 ImageNet，微调分类头）
+   - 文本分支：基于规则的关键词/部位/病程/严重度/瘙痒/疼痛/诱因/皮损形态/复发/年龄加权打分
+   - 先验分支：基于训练集类别分布
+   - 融合公式：`P_final = α·P_image + β·P_text + γ·P_prior`（默认 α=0.7, β=0.25, γ=0.05）
+3. **local_mock**（规则兜底）：纯关键词匹配 + 确定性哈希选择（当本地模型工件缺失时）
+
+### 3. 历史记录管理
+- **本地存储**：`history.json` 记录每次推理的输入、结果、来源、时间
+- **自动过期**：超过 7 天的记录自动清理
+- **侧边栏展示**：可展开卡片列表，显示诊断、置信度、症状、Top-3 候选
+- **关键词检索**：支持按诊断名（中英文）、症状文本、文件名模糊搜索
+- **一键清空**：清空全部历史按钮
+
+### 4. 隐私保护机制
+- **EXIF 剥离**：图像预处理时通过 `Image.frombytes()` 重建像素数据，彻底移除 GPS、拍摄时间、设备型号等敏感元数据
+- **知情同意**：上传后必须勾选隐私声明复选框才能启动分析，未勾选时"开始分析"按钮禁用
+- **数据最小化**：历史记录仅存诊断结果摘要，不存原始图片
+
+### 5. 用户界面
+- **主页面**：
+  - 左侧 sidebar：历史记录（搜索 + 可展开列表 + 清空按钮）
+  - 顶部：⚙️ 运行配置按钮（切换到设置页）
+  - 中间：上传图片 + 结构化表单 + 隐私声明 + 开始分析 + 结果展示
+- **设置页面**（点击按钮进入）：
+  - 数据集信息（只读）
+  - 本地模型配置（目录路径 + 工件检测状态）
+  - API 配置（API Key、模型名、Base URL、超时）
+  - 配置自动保存到 session state
+
+## 数据目录要求
+默认使用：
+- `Dataset/archive/SkinDisease/train/*`（22 类，用于训练本地模型）
+- `Dataset/archive/SkinDisease/test/*`（22 类，用于评测）
+
+支持的 22 类皮肤疾病：
+Acne, Actinic_Keratosis, Benign_tumors, Bullous, Candidiasis, DrugEruption, Eczema, Infestations_Bites, Lichen, Lupus, Moles, Psoriasis, Rosacea, Seborrh_Keratoses, SkinCancer, Sun_Sunlight_Damage, Tinea, Unknown_Normal, Vascular_Tumors, Vasculitis, Vitiligo, Warts
+
+## 快速运行
+
+### 1. 安装依赖
+```powershell
+& $env:PROJECT_PY -m pip install -r requirements.txt
+```
+
+依赖包：
+- `streamlit>=1.30.0` — Web UI 框架
+- `requests>=2.31.0` — API 调用
+- `pillow>=10.0.0` — 图像处理
+- `numpy>=1.24.0` — 数值计算
+- `torch>=2.2.0` — 深度学习框架
+- `torchvision>=0.17.0` — 图像模型
+- `scikit-learn>=1.4.0` — 评测指标
+- `joblib>=1.3.0` — 模型序列化
+
+### 2. 可选配置
+```powershell
+# API Key（留空则自动使用本地推理）
+$env:QWEN_API_KEY="your_key_here"
+
+# 本地模型目录（默认 artifacts）
+$env:LOCAL_MODEL_DIR="artifacts"
+```
+
+### 3. 启动应用
+```powershell
+& $env:PROJECT_PY -m streamlit run app.py
+```
+
+访问 `http://localhost:8501`，按以下步骤使用：
+1. 上传皮肤图片（JPG/PNG）
+2. 填写 8 个结构化症状字段
+3. 勾选隐私声明复选框
+4. 点击"开始分析"
+5. 查看结果：初步诊断、置信度、Top-3 候选、决策轨迹
+
+## 本地模型训练
+
+### 训练命令
+```powershell
+& $env:PROJECT_PY scripts/train_local_model.py `
+  --dataset-root Dataset/archive/SkinDisease `
+  --artifacts-dir artifacts `
+  --arch mobilenet_v3_small `
+  --epochs 5 `
+  --batch-size 32 `
+  --lr 1e-3 `
+  --freeze-backbone
+```
+
+### 参数说明
+- `--dataset-root`：数据集根目录（需包含 train/ 和 test/ 子目录）
+- `--artifacts-dir`：输出目录（默认 artifacts）
+- `--arch`：模型架构（mobilenet_v3_small 或 resnet18）
+- `--epochs`：训练轮数
+- `--batch-size`：批大小
+- `--lr`：学习率
+- `--freeze-backbone`：冻结预训练骨干网络，仅训练分类头（推荐）
+- `--pretrained`：使用 ImageNet 预训练权重（默认开启）
+
+### 训练产物
+训练完成后在 `artifacts/` 目录生成：
+- `local_model.pkl` — PyTorch 模型权重（~6MB）
+- `label_map.json` — 22 类标签映射
+- `metrics.json` — 训练指标（loss、accuracy、F1、混淆矩阵）
+- `train_manifest.csv` — 训练集清单（路径、标签、索引）
+- `test_manifest.csv` — 测试集清单
+
+## 本地方法评测
+
+### 评测命令
+```powershell
+& $env:PROJECT_PY scripts/evaluate_local_methods.py `
+  --dataset-root Dataset/archive/SkinDisease `
+  --artifacts-dir artifacts `
+  --max-per-class 40 `
+  --symptom-mode label_hint
+```
+
+### 参数说明
+- `--max-per-class`：每类最多评测样本数（避免类别不平衡）
+- `--symptom-mode`：症状文本生成模式
+  - `label_hint`：使用 `SYMP_TEMPLATE` 中的标准症状描述
+  - `empty`：空文本（仅图像推理）
+
+### 评测输出
+生成 `artifacts/local_eval_report.json`，包含三种方法的对比：
+1. **old_mock**：纯规则兜底（关键词匹配）
+2. **image_only**：仅图像分类（α=1.0, β=0, γ=0）
+3. **image_text_fusion**：图像+文本融合（α=0.7, β=0.25, γ=0.05）
+
+评测指标：
+- `top1`：Top-1 准确率
+- `top3`：Top-3 命中率
+- `macro_f1`：宏平均 F1 分数
+- `confusion_matrix`：混淆矩阵
+
+## 项目结构
+
+```
+Code/
+├── app.py                      # Streamlit 主应用（增强版）
+├── history.json                # 历史记录（自动生成，7天过期）
+├── requirements.txt            # Python 依赖
+├── core/                       # 核心推理模块
+│   ├── inference.py            #   统一推理入口（三级降级链）
+│   ├── local_hybrid.py         #   本地融合推理（图像+文本+先验）
+│   └── local_model.py          #   模型构建 + 数据增强
+├── src/                        # 旧版模块（兼容保留）
+│   ├── inference.py            #   旧版推理（仅 API → mock）
+│   └── mock_engine.py          #   规则兜底引擎
+├── scripts/
+│   ├── train_local_model.py   # 本地模型训练脚本
+│   └── evaluate_local_methods.py # 三种方法对比评测
+├── artifacts/                  # 训练产物（需先训练生成）
+│   ├── local_model.pkl         #   PyTorch 模型权重
+│   ├── label_map.json          #   标签映射
+│   ├── metrics.json            #   训练指标
+│   ├── train_manifest.csv      #   训练集清单
+│   └── test_manifest.csv       #   测试集清单
+└── Dataset/                    # 数据集（需自行准备）
+    └── archive/SkinDisease/
+        ├── train/              #   训练集（22 类子目录）
+        └── test/               #   测试集（22 类子目录）
+```
+
+## 技术细节
+
+### 图像预处理流程
+1. 读取上传图片（支持 JPG/PNG）
+2. EXIF 旋转修正（`ImageOps.exif_transpose`）
+3. RGB 转换（统一色彩空间）
+4. 归一化到 512×512（`ImageOps.fit` + LANCZOS 重采样）
+5. **EXIF 剥离**：通过 `Image.frombytes()` 重建像素数据，移除所有元数据
+6. 保存为 JPEG（quality=95）
+
+### 文本规则引擎
+`core/local_hybrid.py` 中的 `text_probability()` 函数实现了多维度规则打分：
+- **关键词匹配**：22 类疾病各有专属关键词词典（中英文），命中后加权
+- **否定词检测**：识别"无"、"没有"等否定词，反向扣分
+- **部位匹配**：面部/躯干/四肢/头皮，不同疾病有不同部位偏好
+- **病程匹配**：急性/慢性，如 DrugEruption 偏急性，Psoriasis 偏慢性
+- **严重度匹配**：轻度/中度/重度
+- **瘙痒程度**：无/轻微/中度/剧烈，Eczema、Tinea 等瘙痒相关疾病加权
+- **疼痛程度**：无/轻微/中度/剧烈，Bullous、SkinCancer 等疼痛相关疾病加权
+- **诱因匹配**：日晒/用药/虫咬/接触刺激物，如 Sun_Sunlight_Damage 对日晒加权
+- **皮损形态**：红斑/鳞屑/水疱/溃疡/丘疹/色素改变，匹配典型形态
+- **复发情况**：首次/反复，Eczema、Psoriasis 等慢性复发疾病加权
+- **年龄段**：儿童/青年/中年/老年，如 Acne 偏青年，Seborrh_Keratoses 偏老年
+
+最终通过 softmax 归一化为概率分布。
+
+### 融合策略
+```python
+P_final = α * P_image + β * P_text + γ * P_prior
+```
+- `P_image`：本地图像分类模型输出（MobileNetV3-Small）
+- `P_text`：文本规则引擎输出（多维度加权打分）
+- `P_prior`：训练集类别分布先验
+- 默认权重：α=0.7（图像主导），β=0.25（文本辅助），γ=0.05（先验平滑）
+- 若症状文本为空，自动调整为 α=0.9, β=0.05, γ=0.05
+
+## 注意事项
+
+### 隐私与合规
+- **非医疗器械**：本项目为教学与科研原型，不构成医疗诊断建议，不得用于临床决策
+- **数据去标识化**：图像预处理时自动剥离 EXIF 元数据（GPS、时间、设备信息）
+- **知情同意**：用户必须勾选隐私声明才能提交分析
+- **数据留存**：历史记录仅存诊断结果摘要，不存原始图片，7 天自动过期
+
+### API 调用限制
+- Qwen-VL API 可能触发内容审核（`data_inspection_failed`），系统会自动降级到本地推理
+- 建议设置合理的超时时间（默认 40 秒）
+- API Key 留空时自动跳过 API 调用，直接使用本地推理
+
+### 性能优化
+- 本地模型推理速度：~100ms/张（CPU），~20ms/张（GPU）
+- 图像预处理：~50ms/张
+- 文本规则引擎：<1ms
+- 建议使用 GPU 加速（自动检测 CUDA）
+
+### 已知限制
+- 仅支持 22 类皮肤疾病，不覆盖所有皮肤病
+- 本地模型在小样本类别上准确率较低（如 Lupus、Vitiligo）
+- 文本规则引擎基于专家经验，可能存在偏差
+- 不支持多病灶同时诊断
+
+## 常见问题
+
+**Q: 如何提高诊断准确率？**
+A: 
+1. 确保图片清晰、光线充足、病灶居中
+2. 尽量填写完整的结构化症状信息
+3. 使用 Qwen-VL API（需配置 API Key）
+4. 增加训练数据并重新训练本地模型
+
+**Q: 历史记录存在哪里？**
+A: `history.json` 文件（项目根目录），超过 7 天自动清理
+
+**Q: 如何导出历史记录？**
+A: 直接复制 `history.json` 文件，或在侧边栏使用"清空全部历史"前手动备份
+
+**Q: 如何更换本地模型？**
+A: 
+1. 重新训练：`python scripts/train_local_model.py --arch resnet18 --epochs 10`
+2. 替换 `artifacts/local_model.pkl` 和 `artifacts/label_map.json`
+3. 重启应用
+
+**Q: 如何禁用 API 调用？**
+A: 不设置 `QWEN_API_KEY` 环境变量，或在设置页面清空 API Key 输入框
+
+**Q: 如何查看决策轨迹？**
+A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
+- 融合权重（α, β, γ）
+- 文本匹配信号（matched_signals）
+- 否定信号（negated_signals）
+- 图像模型信息
+
+## 更新日志
+
+### v2.0（当前版本）
+- ✨ 新增结构化症状输入（8 个字段）
+- ✨ 新增历史记录管理（本地存储 + 检索 + 7 天过期）
+- ✨ 新增隐私保护机制（EXIF 剥离 + 知情同意）
+- ✨ 新增设置页面（独立配置界面）
+- 🔧 优化文本规则引擎（新增瘙痒/疼痛/诱因/皮损形态/复发/年龄维度）
+- 🔧 优化 UI 布局（sidebar 历史记录 + 主页面输入/结果）
+- 🐛 修复 EXIF 元数据泄露问题
+
+### v1.0（旧版）
+- 基础功能：图片上传 + 自由文本输入 + 三级推理降级
+- 本地模型训练 + 评测脚本
+
+## 许可与引用
+本项目仅供教学与科研使用，不得用于商业用途或临床诊断。
