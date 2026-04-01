@@ -19,14 +19,6 @@
 }
 ```
 
-## Python环境（固定）
-后续统一使用：`D:\anaconda3\envs\env_disease_detect_1\python.exe`
-
-```powershell
-$env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
-& $env:PROJECT_PY --version
-```
-
 ## 核心功能
 
 ### 1. 结构化症状输入
