@@ -1,4 +1,4 @@
-﻿# 皮肤疾病初筛演示系统
+﻿# 皮肤疾病初筛演示原型（增强版）
 
 ## 项目目标
 输入一张皮肤图片 + 结构化症状信息，输出结构化初步筛查结果（辅助筛查，不用于临床确诊）。
@@ -17,6 +17,14 @@
   ],
   "decision_trace": {}
 }
+```
+
+## Python环境（固定）
+后续统一使用：`D:\anaconda3\envs\env_disease_detect_1\python.exe`
+
+```powershell
+$env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
+& $env:PROJECT_PY --version
 ```
 
 ## 核心功能
@@ -140,7 +148,7 @@ $env:LOCAL_MODEL_DIR="artifacts"
 ```
 
 访问 `http://localhost:8501`，按以下步骤使用：
-1. 点击侧边栏"⚙️ 运行配置"，选择模型提供商并填入 API Key
+1. 点击侧边栏"运行配置"，选择模型提供商并填入 API Key
 2. 上传皮肤图片（JPG/PNG）
 3. 填写 8 个结构化症状字段
 4. 勾选隐私声明复选框
@@ -334,6 +342,54 @@ A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
 - 文本匹配信号（matched_signals）
 - 否定信号（negated_signals）
 - 图像模型信息
+
+## 开源上传指南
+
+上传到 GitHub / Gitee 等开源平台前，请确认以下检查项：
+
+### 必须排除的文件（已在 `.gitignore` 中配置）
+- `.env` — 包含真实 API Key
+- `history.json` — 包含真实诊断记录
+- `artifacts/local_model.pkl` — 模型权重文件（体积大，~6MB）
+- `artifacts/train_manifest.csv` / `test_manifest.csv` — 数据集路径清单
+- `Dataset/` — 数据集目录（体积大）
+- `.vscode/` / `.claude/` — 本地 IDE 配置
+
+### 可以上传的文件
+- 所有 `.py` 源代码
+- `artifacts/label_map.json` — 标签映射（无隐私）
+- `artifacts/metrics.json` — 训练指标（无隐私）
+- `.env.example` — API Key 配置模板
+- `requirements.txt` — 依赖列表
+- `README.md` — 项目文档
+- `.gitignore` — 排除规则
+
+### 初始化 Git 仓库并上传
+
+```bash
+# 1. 初始化仓库
+git init
+git add .
+git commit -m "Initial commit: skin disease screening prototype"
+
+# 2. 关联远程仓库（以 GitHub 为例）
+git remote add origin https://github.com/your-username/your-repo.git
+git branch -M main
+git push -u origin main
+```
+
+### 上传前最终检查
+
+```bash
+# 确认 .env 不在暂存区
+git status
+
+# 确认 history.json 不在暂存区（应显示为 ignored）
+git check-ignore -v history.json
+
+# 查看将要上传的文件列表
+git ls-files
+```
 
 ## 更新日志
 

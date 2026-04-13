@@ -66,7 +66,7 @@ DISEASE_LABEL_ZH: dict[str, str] = {
 
 SOURCE_ZH: dict[str, str] = {
     "qwen_vl_api": "大模型API路径（Qwen-VL）",
-    "local_hybrid": "本地融合路径（local_hybrid）",
+    "local_hybrid": "本地推理",
     "local_mock": "本地规则路径（local_mock）",
 }
 
@@ -190,6 +190,7 @@ def _render_history_panel_sidebar() -> None:
             source_zh = _source_to_zh(rec.get("source", ""))
             time_str = rec.get("time", "")
             fname = rec.get("filename", "")
+            rec_sig = json.dumps(rec, ensure_ascii=False, sort_keys=True)
             with st.sidebar.expander(f"{time_str}  {diag_zh}", expanded=False):
                 st.write(f"**文件**: {fname}")
                 st.write(f"**诊断**: {diag_zh}  置信度: {conf}")
@@ -200,6 +201,24 @@ def _render_history_panel_sidebar() -> None:
                     st.write("**Top-3**:")
                     for item in top3:
                         st.write(f"- {_label_with_zh(item.get('label', ''))}: {item.get('score', 0)}")
+                if st.button("删除", key=f"delete_{hash(rec_sig)}", type="secondary"):
+                    st.session_state[f"confirm_{hash(rec_sig)}"] = True
+                if st.session_state.get(f"confirm_{hash(rec_sig)}"):
+                    st.warning("确认删除这条记录？")
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("确认", key=f"yes_{hash(rec_sig)}", type="primary"):
+                            new_records = [
+                                r for r in records
+                                if json.dumps(r, ensure_ascii=False, sort_keys=True) != rec_sig
+                            ]
+                            _save_history(new_records)
+                            st.session_state.pop(f"confirm_{hash(rec_sig)}", None)
+                            st.rerun()
+                    with col_no:
+                        if st.button("取消", key=f"no_{hash(rec_sig)}"):
+                            st.session_state.pop(f"confirm_{hash(rec_sig)}", None)
+                            st.rerun()
 
     if st.sidebar.button("清空全部历史", type="secondary"):
         _save_history([])
@@ -230,9 +249,9 @@ def _render_settings_page(dataset_root: str, labels: list[str]) -> None:
     st.session_state.local_model_dir = local_model_dir
 
     if local_hybrid_artifacts_available(local_model_dir):
-        st.success("✓ 已检测到 local_hybrid 模型工件。")
+        st.success("已检测到 local_hybrid 模型工件。")
     else:
-        st.warning("⚠ 未检测到 local_hybrid 工件，将自动回退 local_mock。")
+        st.warning("未检测到 local_hybrid 工件，将自动回退 local_mock。")
 
     st.markdown("---")
 
@@ -247,7 +266,7 @@ def _render_settings_page(dataset_root: str, labels: list[str]) -> None:
 
     provider = provider_options[
         st.selectbox(
-            "模型提供商",
+            "模型供应商",
             range(len(provider_options)),
             index=provider_options.index(current_provider),
             format_func=lambda i: PROVIDER_LABELS[provider_options[i]],
@@ -584,7 +603,6 @@ def _preprocess_image(
         centering=(0.5, 0.5),
     )
 
-    # Strip all EXIF/metadata by creating a clean image from raw pixel data
     clean = Image.frombytes("RGB", normalized.size, normalized.tobytes())
 
     buffer = io.BytesIO()
@@ -595,7 +613,7 @@ def _preprocess_image(
 def main() -> None:
     st.set_page_config(page_title="皮肤疾病初筛系统", layout="centered")
     st.title("皮肤疾病初筛演示系统")
-    st.caption("输入皮肤图片 + 症状文本，返回结构化初步筛查结果（非临床诊断）。")
+    st.caption("输入皮肤图片 + 症状文本，返回初步筛查结果（非临床诊断）。")
 
     _purge_expired_history()
 
@@ -691,17 +709,26 @@ def main() -> None:
 
     display_result = _translate_result_for_display(result)
 
-    st.caption(
-        "图像预处理："
-        f"{original_size[0]}x{original_size[1]} -> "
-        f"{normalized_size[0]}x{normalized_size[1]}（RGB/JPEG）"
-    )
+    # st.caption(
+    #     "图像预处理："
+    #     f"{original_size[0]}x{original_size[1]} -> "
+    #     f"{normalized_size[0]}x{normalized_size[1]}（RGB/JPEG）"
+    # )
+  
+    if display_result.get("top3_candidates"):
+        st.subheader("Top-3 候选")
+        st.table(
+            [
+                {"候选诊断": item.get("label"), "置信度": item.get("score")}
+                for item in display_result["top3_candidates"]
+            ]
+        )
 
     st.subheader("输入摘要")
     st.write(f"`{symptom_text}`")
 
-    st.subheader("结构化结果")
-    st.json(display_result)
+    #st.subheader("结构化结果")
+    #st.json(display_result)
 
     st.subheader("结果摘要")
     st.write(
@@ -711,26 +738,17 @@ def main() -> None:
     )
     st.info(display_result["note"])
 
-    if display_result.get("top3_candidates"):
-        st.subheader("Top-3 候选")
-        st.table(
-            [
-                {"候选诊断": item.get("label"), "分数": item.get("score")}
-                for item in display_result["top3_candidates"]
-            ]
-        )
-
     if display_result.get("decision_trace"):
-        with st.expander("决策轨迹（decision_trace）", expanded=False):
+        with st.expander("决策轨迹", expanded=False):
             st.json(display_result["decision_trace"])
 
     if result.get("mock_result"):
-        st.warning("当前为本地路径结果（非API直接结果）。")
+        st.warning("当前为本地推理结果（非API结果）。")
         if any("data_inspection_failed" in err for err in debug_errors):
             st.warning("检测到平台内容审核拦截（data_inspection_failed），已自动切换本地推理。")
 
     if debug_errors:
-        with st.expander("调试信息（调用失败原因）", expanded=False):
+        with st.expander("调试信息", expanded=False):
             for item in debug_errors:
                 st.write(f"- {item}")
 

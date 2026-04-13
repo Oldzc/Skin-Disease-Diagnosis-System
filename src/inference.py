@@ -65,26 +65,53 @@ def _normalize_result(parsed: dict[str, Any], labels: list[str]) -> dict[str, An
     }
 
 
+# def _build_prompt(symptom_text: str, labels: list[str]) -> str:
+#     label_text = ", ".join(labels)
+#     user_text = symptom_text.strip() or "（未提供症状描述）"
+#     return f"""
+# 你是皮肤疾病筛查助手。请基于输入图像与症状文本给出“初步筛查”结果。
+# 只允许从下列标签中选择一个 primary_diagnosis：{label_text}
+
+# 症状文本：{user_text}
+
+# 你必须只输出一个 JSON 对象，且只能包含这四个字段：
+# {{
+#   "primary_diagnosis": "<标签之一>",
+#   "confidence": <0到1之间的小数>,
+#   "note": "初步筛查结果，非临床诊断结论"
+# }}
+
+# 要求：
+# 1) 不要输出 markdown，不要输出解释性文字。
+# 2) confidence 必须在 0.00 到 1.00 区间。
+# 3) 若不确定也必须返回最可能的一个标签。
+# """.strip()
+
+
 def _build_prompt(symptom_text: str, labels: list[str]) -> str:
     label_text = ", ".join(labels)
     user_text = symptom_text.strip() or "（未提供症状描述）"
     return f"""
 你是皮肤疾病筛查助手。请基于输入图像与症状文本给出“初步筛查”结果。
-只允许从下列标签中选择一个 primary_diagnosis：{label_text}
+请从下列标签中选择三个最可能的候选疾病：{label_text}
 
 症状文本：{user_text}
 
-你必须只输出一个 JSON 对象，且只能包含这四个字段：
+你必须只输出一个 JSON 对象，且严格包含以下字段：
 {{
-  "primary_diagnosis": "<标签之一>",
+  "primary_diagnosis": "<最可能的标签>",
   "confidence": <0到1之间的小数>,
+  "candidate_2": "<第二可能的标签>",
+  "confidence_2": <0到1之间的小数>,
+  "candidate_3": "<第三可能的标签>",
+  "confidence_3": <0到1之间的小数>,
   "note": "初步筛查结果，非临床诊断结论"
 }}
 
 要求：
 1) 不要输出 markdown，不要输出解释性文字。
-2) confidence 必须在 0.00 到 1.00 区间。
-3) 若不确定也必须返回最可能的一个标签。
+2) 所有置信度(confidence)必须在 0.00 到 1.00 区间，且 confidence + confidence_2 + confidence_3 的总和必须小于等于 1.00。
+3) 必须从候选标签中选择 3 个不同的疾病，并按可能性从高到低排列（primary_diagnosis 最可能）。
 """.strip()
 
 

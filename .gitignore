@@ -1,0 +1,49 @@
+# ===== 隐私与敏感数据 =====
+.env
+.env.local
+.env.*.local
+history.json          # 包含真实诊断记录，不上传
+
+# ===== 本地模型工件（体积大，不上传） =====
+artifacts/local_model.pkl
+artifacts/train_manifest.csv
+artifacts/test_manifest.csv
+
+# ===== 数据集（体积大，不上传） =====
+Dataset/
+
+# ===== IDE / 编辑器配置 =====
+.vscode/
+.idea/
+*.code-workspace
+.claude/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== 虚拟环境 =====
+venv/
+.venv/
+env/
+.env/
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 日志 =====
+*.log
+logs/
