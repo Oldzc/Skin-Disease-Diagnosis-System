@@ -343,54 +343,6 @@ A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
 - 否定信号（negated_signals）
 - 图像模型信息
 
-## 开源上传指南
-
-上传到 GitHub / Gitee 等开源平台前，请确认以下检查项：
-
-### 必须排除的文件（已在 `.gitignore` 中配置）
-- `.env` — 包含真实 API Key
-- `history.json` — 包含真实诊断记录
-- `artifacts/local_model.pkl` — 模型权重文件（体积大，~6MB）
-- `artifacts/train_manifest.csv` / `test_manifest.csv` — 数据集路径清单
-- `Dataset/` — 数据集目录（体积大）
-- `.vscode/` / `.claude/` — 本地 IDE 配置
-
-### 可以上传的文件
-- 所有 `.py` 源代码
-- `artifacts/label_map.json` — 标签映射（无隐私）
-- `artifacts/metrics.json` — 训练指标（无隐私）
-- `.env.example` — API Key 配置模板
-- `requirements.txt` — 依赖列表
-- `README.md` — 项目文档
-- `.gitignore` — 排除规则
-
-### 初始化 Git 仓库并上传
-
-```bash
-# 1. 初始化仓库
-git init
-git add .
-git commit -m "Initial commit: skin disease screening prototype"
-
-# 2. 关联远程仓库（以 GitHub 为例）
-git remote add origin https://github.com/your-username/your-repo.git
-git branch -M main
-git push -u origin main
-```
-
-### 上传前最终检查
-
-```bash
-# 确认 .env 不在暂存区
-git status
-
-# 确认 history.json 不在暂存区（应显示为 ignored）
-git check-ignore -v history.json
-
-# 查看将要上传的文件列表
-git ls-files
-```
-
 ## 更新日志
 
 ### v2.1（当前版本）
@@ -398,7 +350,6 @@ git ls-files
 - ✨ 新增 `.gitignore` 和 `.env.example`，支持安全开源上传
 - 🔧 重构推理引擎为统一 `infer_with_provider()` 接口
 - 🔧 设置页面新增提供商选择和各平台申请说明
-- 🐛 清空 `history.json` 中的测试诊断记录
 
 ### v2.0
 - ✨ 新增结构化症状输入（8 个字段）
