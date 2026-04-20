@@ -1,0 +1,36 @@
+{
+  "dataset": "HAM10000",
+  "mapping": {
+    "akiec": "Actinic_Keratosis",
+    "bcc": "SkinCancer",
+    "bkl": "Seborrh_Keratoses",
+    "df": "Benign_tumors",
+    "mel": "SkinCancer",
+    "nv": "Moles",
+    "vasc": "Vascular_Tumors"
+  },
+  "num_samples": 700,
+  "layers": [
+    {
+      "layer": "layer1_api",
+      "num_samples": 700,
+      "top1": 0.2571,
+      "top3": 0.6271,
+      "macro_f1": 0.0512,
+      "success_rate": 0.9957,
+      "schema_pass_rate": 0.9957,
+      "avg_latency_ms": 5943.72
+    },
+    {
+      "layer": "layer2_local_hybrid",
+      "num_samples": 700,
+      "top1": 0.2657,
+      "top3": 0.5857,
+      "macro_f1": 0.075,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 17.32
+    }
+  ],
+  "per_dx_breakdown_path": "/content/drive/Othercomputers/MyComputer/Code/artifacts/external_generalization/ham10000/per_dx_breakdown.csv"
+}

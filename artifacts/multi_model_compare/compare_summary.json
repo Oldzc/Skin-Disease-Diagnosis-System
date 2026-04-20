@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "arch": "mobilenet_v3_small",
+      "top1": 0.6798,
+      "top3": 0.8551,
+      "macro_f1": 0.6478,
+      "model_params": 1540406,
+      "model_size_mb": 5.876,
+      "inference_ms_per_image": 5.298,
+      "train_seconds": 2421.0,
+      "best_epoch": 23,
+      "best_macro_f1": 0.6466,
+      "metrics_path": "D:\\SCUT\\毕业设计\\Code\\artifacts\\multi_model_compare\\mobilenet_v3_small\\metrics.json",
+      "fusion_top1": 0.6738,
+      "fusion_top3": 0.9478,
+      "fusion_macro_f1": 0.6733
+    },
+    {
+      "arch": "resnet18",
+      "top1": 0.7354,
+      "top3": 0.8933,
+      "macro_f1": 0.7079,
+      "model_params": 11187798,
+      "model_size_mb": 42.678,
+      "inference_ms_per_image": 2.44,
+      "train_seconds": 2484.74,
+      "best_epoch": 30,
+      "best_macro_f1": 0.7079,
+      "metrics_path": "D:\\SCUT\\毕业设计\\Code\\artifacts\\multi_model_compare\\resnet18\\metrics.json",
+      "fusion_top1": 0.7189,
+      "fusion_top3": 0.9419,
+      "fusion_macro_f1": 0.72
+    },
+    {
+      "arch": "efficientnet_b0",
+      "top1": 0.762,
+      "top3": 0.9107,
+      "macro_f1": 0.7337,
+      "model_params": 4035730,
+      "model_size_mb": 15.395,
+      "inference_ms_per_image": 8.427,
+      "train_seconds": 2259.19,
+      "best_epoch": 21,
+      "best_macro_f1": 0.7337,
+      "metrics_path": "D:\\SCUT\\毕业设计\\Code\\artifacts\\multi_model_compare\\efficientnet_b0\\metrics.json",
+      "fusion_top1": 0.7509,
+      "fusion_top3": 0.9573,
+      "fusion_macro_f1": 0.7502
+    }
+  ]
+}

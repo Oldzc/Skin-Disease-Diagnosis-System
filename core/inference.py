@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any
 
-from src.mock_engine import DISCLAIMER, mock_infer
+from core.mock_engine import DISCLAIMER, mock_infer
 
 
 class InferenceError(RuntimeError):
@@ -416,7 +416,7 @@ def _run_local_fallback(
     labels: list[str],
     errors: list[str],
 ) -> tuple[dict[str, Any], list[str]]:
-    artifacts_dir = os.getenv("LOCAL_MODEL_DIR", "artifacts")
+    artifacts_dir = os.getenv("LOCAL_MODEL_DIR", "artifacts/multi_model_compare/efficientnet_b0")
 
     try:
         from core.local_hybrid import local_hybrid_infer

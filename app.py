@@ -1,16 +1,22 @@
 ﻿from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import os
+import re
+import secrets
 from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-HISTORY_FILE = Path(__file__).parent / "history.json"
+APP_DIR = Path(__file__).parent
+USERS_FILE = APP_DIR / "users.json"
+USER_HISTORY_DIR = APP_DIR / "user_histories"
+LEGACY_HISTORY_FILE = APP_DIR / "history.json"
 
 from core.inference import (
     PROVIDER_ANTHROPIC,
@@ -21,7 +27,7 @@ from core.inference import (
     infer_with_provider,
 )
 from core.local_hybrid import local_hybrid_artifacts_available
-from src.mock_engine import load_class_labels, resolve_dataset_root
+from core.mock_engine import load_class_labels, resolve_dataset_root
 
 PROVIDER_LABELS: dict[str, str] = {
     PROVIDER_QWEN: "Qwen-VL（阿里云通义千问）",
@@ -70,6 +76,14 @@ SOURCE_ZH: dict[str, str] = {
     "local_mock": "本地规则路径（local_mock）",
 }
 
+LOCAL_ARCH_OPTIONS = ["auto", "mobilenet_v3_small", "resnet18", "efficientnet_b0"]
+LOCAL_ARCH_LABELS = {
+    "auto": "自动（优先当前目录）",
+    "mobilenet_v3_small": "MobileNetV3-Small",
+    "resnet18": "ResNet18",
+    "efficientnet_b0": "EfficientNet-B0",
+}
+
 MODE_ZH: dict[str, str] = {
     "hybrid": "图像+文本融合",
     "image_only": "仅图像",
@@ -110,10 +124,174 @@ AGE_FLAG_ZH: dict[str, str] = {
 HISTORY_EXPIRE_DAYS = 7
 
 
-def _load_history() -> list[dict]:
-    if HISTORY_FILE.exists():
+def _normalize_username(username: str) -> str:
+    return (username or "").strip().lower()
+
+
+def _validate_username(username: str) -> tuple[bool, str]:
+    name = _normalize_username(username)
+    if not re.fullmatch(r"[a-z0-9_-]{3,32}", name):
+        return False, "用户名需为 3-32 位，仅支持小写字母、数字、下划线、短横线。"
+    return True, ""
+
+
+def _load_users() -> dict[str, dict]:
+    if USERS_FILE.exists():
         try:
-            with HISTORY_FILE.open("r", encoding="utf-8") as f:
+            with USERS_FILE.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_users(users: dict[str, dict]) -> None:
+    with USERS_FILE.open("w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
+
+
+def _hash_password(password: str, salt: str) -> str:
+    payload = f"{salt}:{password}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _register_user(username: str, password: str) -> tuple[bool, str]:
+    ok, msg = _validate_username(username)
+    if not ok:
+        return False, msg
+    if len(password) < 6:
+        return False, "密码长度至少 6 位。"
+
+    uname = _normalize_username(username)
+    users = _load_users()
+    if uname in users:
+        return False, "用户名已存在。"
+
+    salt = secrets.token_hex(16)
+    users[uname] = {
+        "salt": salt,
+        "password_hash": _hash_password(password, salt),
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    _save_users(users)
+    return True, "注册成功。"
+
+
+def _verify_user(username: str, password: str) -> bool:
+    uname = _normalize_username(username)
+    users = _load_users()
+    record = users.get(uname)
+    if not isinstance(record, dict):
+        return False
+    salt = str(record.get("salt", ""))
+    expected = str(record.get("password_hash", ""))
+    if not salt or not expected:
+        return False
+    return _hash_password(password, salt) == expected
+
+
+def _get_current_user() -> str:
+    current = st.session_state.get("current_user", "guest")
+    name = _normalize_username(str(current))
+    return name if name else "guest"
+
+
+def _history_file_for_user(username: str) -> Path:
+    USER_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = _normalize_username(username) or "guest"
+    safe_name = re.sub(r"[^a-z0-9_-]", "_", safe_name)
+    return USER_HISTORY_DIR / f"{safe_name}.json"
+
+
+def _ensure_storage_layout() -> None:
+    USER_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+
+    if LEGACY_HISTORY_FILE.exists():
+        guest_file = _history_file_for_user("guest")
+        if not guest_file.exists():
+            try:
+                with LEGACY_HISTORY_FILE.open("r", encoding="utf-8") as f:
+                    legacy = json.load(f)
+                if isinstance(legacy, list):
+                    with guest_file.open("w", encoding="utf-8") as f:
+                        json.dump(legacy, f, ensure_ascii=False, indent=2)
+            except (json.JSONDecodeError, OSError):
+                pass
+        try:
+            LEGACY_HISTORY_FILE.unlink()
+        except OSError:
+            pass
+
+
+def _find_arch_specific_dir(base_dir: str | Path, arch: str) -> Path | None:
+    root = Path(base_dir)
+    candidates = _build_arch_dir_candidates(root, arch)
+    for p in candidates:
+        if local_hybrid_artifacts_available(p):
+            return p
+    return None
+
+
+def _build_arch_dir_candidates(root: Path, arch: str) -> list[Path]:
+    candidates: list[Path] = []
+    roots_to_try: list[Path] = [root]
+
+    # If user sets base_dir to a specific arch folder, allow switching to sibling arch folders.
+    if root.name in LOCAL_ARCH_OPTIONS and root.name != "auto":
+        roots_to_try.insert(0, root.parent)
+    else:
+        roots_to_try.extend([root.parent])
+
+    for base in roots_to_try:
+        if not str(base):
+            continue
+        candidates.append(base / arch)
+        candidates.append(base / "multi_model_compare" / arch)
+
+    # De-duplicate while preserving order.
+    ordered: list[Path] = []
+    seen: set[str] = set()
+    for p in candidates:
+        key = str(p.resolve()) if p.exists() else str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(p)
+    return ordered
+
+
+def _resolve_effective_local_model_dir(base_dir: str | Path, arch: str) -> str:
+    root = Path(base_dir)
+    if arch and arch != "auto":
+        picked = _find_arch_specific_dir(root, arch)
+        if picked is not None:
+            return str(picked)
+        # Keep showing the target arch path even when artifacts are missing,
+        # so switching arch visibly changes and users know where files are expected.
+        preferred = _build_arch_dir_candidates(root, arch)[0]
+        return str(preferred)
+
+    if local_hybrid_artifacts_available(root):
+        return str(root)
+
+    for cand in LOCAL_ARCH_OPTIONS:
+        if cand == "auto":
+            continue
+        picked = _find_arch_specific_dir(root, cand)
+        if picked is not None:
+            return str(picked)
+
+    return str(root)
+
+
+def _load_history(username: str | None = None) -> list[dict]:
+    user = _normalize_username(username or _get_current_user()) or "guest"
+    history_file = _history_file_for_user(user)
+    if history_file.exists():
+        try:
+            with history_file.open("r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list):
                 return data
@@ -122,24 +300,35 @@ def _load_history() -> list[dict]:
     return []
 
 
-def _save_history(records: list[dict]) -> None:
-    with HISTORY_FILE.open("w", encoding="utf-8") as f:
+def _save_history(records: list[dict], username: str | None = None) -> None:
+    user = _normalize_username(username or _get_current_user()) or "guest"
+    history_file = _history_file_for_user(user)
+    with history_file.open("w", encoding="utf-8") as f:
         json.dump(records, f, ensure_ascii=False, indent=2)
 
 
 def _purge_expired_history() -> None:
-    records = _load_history()
     cutoff = datetime.now().timestamp() - HISTORY_EXPIRE_DAYS * 86400
-    kept = []
-    for r in records:
+    for history_file in USER_HISTORY_DIR.glob("*.json"):
         try:
-            ts = datetime.strptime(r["time"], "%Y-%m-%d %H:%M:%S").timestamp()
-            if ts >= cutoff:
+            with history_file.open("r", encoding="utf-8") as f:
+                records = json.load(f)
+            if not isinstance(records, list):
+                continue
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        kept = []
+        for r in records:
+            try:
+                ts = datetime.strptime(r["time"], "%Y-%m-%d %H:%M:%S").timestamp()
+                if ts >= cutoff:
+                    kept.append(r)
+            except (KeyError, ValueError):
                 kept.append(r)
-        except (KeyError, ValueError):
-            kept.append(r)
-    if len(kept) < len(records):
-        _save_history(kept)
+        if len(kept) < len(records):
+            with history_file.open("w", encoding="utf-8") as f:
+                json.dump(kept, f, ensure_ascii=False, indent=2)
 
 
 def _append_history(
@@ -148,9 +337,11 @@ def _append_history(
     result: dict,
     filename: str,
 ) -> None:
-    records = _load_history()
+    user = _get_current_user()
+    records = _load_history(user)
     records.insert(0, {
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "user": user,
         "filename": filename,
         "symptom_text": symptom_text,
         "form_data": form_data,
@@ -159,13 +350,75 @@ def _append_history(
         "source": result.get("source", ""),
         "top3_candidates": result.get("top3_candidates", []),
     })
-    _save_history(records)
+    _save_history(records, user)
+
+
+def _render_auth_page() -> None:
+    current_user = _get_current_user()
+    st.title("用户登录")
+    st.caption("本地账号系统：登录后将按用户隔离保存历史记录。")
+
+    if st.button("← 返回主页", use_container_width=True):
+        st.session_state.show_auth_page = False
+        st.rerun()
+
+    st.markdown("---")
+    st.write(f"当前账号：`{current_user}`")
+
+    if current_user != "guest":
+        st.success("当前已登录。")
+        if st.button("退出登录", use_container_width=True, type="secondary"):
+            st.session_state.current_user = "guest"
+            st.session_state.show_auth_page = False
+            st.rerun()
+        return
+
+    mode = st.radio(
+        "账号操作",
+        ["登录", "注册"],
+        key="auth_mode",
+        horizontal=True,
+    )
+
+    if mode == "登录":
+        with st.form("login_form", clear_on_submit=False):
+            username = st.text_input("用户名", key="login_username")
+            password = st.text_input("密码", type="password", key="login_password")
+            submit = st.form_submit_button("登录", use_container_width=True)
+        if submit:
+            if _verify_user(username, password):
+                st.session_state.current_user = _normalize_username(username)
+                st.session_state.show_auth_page = False
+                st.success("登录成功。")
+                st.rerun()
+            st.error("用户名或密码错误。")
+    else:
+        st.caption("用户名仅支持小写字母、数字、下划线、短横线（3-32位）。")
+        with st.form("register_form", clear_on_submit=False):
+            username = st.text_input("用户名", key="reg_username")
+            password = st.text_input("密码", type="password", key="reg_password")
+            confirm = st.text_input("确认密码", type="password", key="reg_password_confirm")
+            submit = st.form_submit_button("注册并登录", use_container_width=True)
+        if submit:
+            if password != confirm:
+                st.error("两次密码不一致。")
+            else:
+                ok, msg = _register_user(username, password)
+                if ok:
+                    st.session_state.current_user = _normalize_username(username)
+                    st.session_state.show_auth_page = False
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
 
 
 def _render_history_panel_sidebar() -> None:
     st.sidebar.subheader("历史记录")
 
-    records = _load_history()
+    current_user = _get_current_user()
+    records = _load_history(current_user)
+    st.sidebar.caption(f"账号：`{current_user}`")
 
     query = st.sidebar.text_input("搜索（诊断/症状/文件名）", key="history_search").strip().lower()
 
@@ -212,7 +465,7 @@ def _render_history_panel_sidebar() -> None:
                                 r for r in records
                                 if json.dumps(r, ensure_ascii=False, sort_keys=True) != rec_sig
                             ]
-                            _save_history(new_records)
+                            _save_history(new_records, current_user)
                             st.session_state.pop(f"confirm_{hash(rec_sig)}", None)
                             st.rerun()
                     with col_no:
@@ -220,8 +473,8 @@ def _render_history_panel_sidebar() -> None:
                             st.session_state.pop(f"confirm_{hash(rec_sig)}", None)
                             st.rerun()
 
-    if st.sidebar.button("清空全部历史", type="secondary"):
-        _save_history([])
+    if st.sidebar.button("清空当前账号历史", type="secondary"):
+        _save_history([], current_user)
         st.rerun()
 
 
@@ -244,14 +497,31 @@ def _render_settings_page(dataset_root: str, labels: list[str]) -> None:
     st.subheader("本地模型配置")
     local_model_dir = st.text_input(
         "本地模型目录",
-        value=st.session_state.get("local_model_dir", os.getenv("LOCAL_MODEL_DIR", "artifacts")),
+        value=st.session_state.get("local_model_dir", os.getenv("LOCAL_MODEL_DIR", "artifacts/multi_model_compare")),
     )
     st.session_state.local_model_dir = local_model_dir
 
-    if local_hybrid_artifacts_available(local_model_dir):
-        st.success("已检测到 local_hybrid 模型工件。")
+    current_arch = st.session_state.get("local_model_arch", os.getenv("LOCAL_MODEL_ARCH", "efficientnet_b0"))
+    if current_arch not in LOCAL_ARCH_OPTIONS:
+        current_arch = "auto"
+
+    local_arch = st.selectbox(
+        "本地推理网络",
+        LOCAL_ARCH_OPTIONS,
+        index=LOCAL_ARCH_OPTIONS.index(current_arch),
+        format_func=lambda x: LOCAL_ARCH_LABELS.get(x, x),
+        help="仅影响本地推理路径（local_hybrid / local_mock），API正常时优先走API。",
+    )
+    st.session_state.local_model_arch = local_arch
+
+    effective_local_model_dir = _resolve_effective_local_model_dir(local_model_dir, local_arch)
+    st.session_state.local_model_effective_dir = effective_local_model_dir
+    st.caption(f"当前生效模型目录：`{effective_local_model_dir}`")
+
+    if local_hybrid_artifacts_available(effective_local_model_dir):
+        st.success("已检测到 local_hybrid 模型工件（当前网络选择可用）。")
     else:
-        st.warning("未检测到 local_hybrid 工件，将自动回退 local_mock。")
+        st.warning("当前网络选择未检测到 local_hybrid 工件，将自动回退 local_mock。")
 
     st.markdown("---")
 
@@ -341,7 +611,9 @@ def _render_settings_page(dataset_root: str, labels: list[str]) -> None:
 def _render_history_panel(col) -> None:
     col.subheader("历史记录")
 
-    records = _load_history()
+    current_user = _get_current_user()
+    records = _load_history(current_user)
+    col.caption(f"账号：`{current_user}`")
 
     query = col.text_input("搜索（诊断/症状/文件名）", key="history_search").strip().lower()
 
@@ -377,8 +649,8 @@ def _render_history_panel(col) -> None:
                     for item in top3:
                         st.write(f"- {_label_with_zh(item.get('label', ''))}: {item.get('score', 0)}")
 
-    if col.button("清空全部历史", type="secondary"):
-        _save_history([])
+    if col.button("清空当前账号历史", type="secondary"):
+        _save_history([], current_user)
         st.rerun()
 
 
@@ -615,6 +887,12 @@ def main() -> None:
     st.title("皮肤疾病初筛演示系统")
     st.caption("输入皮肤图片 + 症状文本，返回初步筛查结果（非临床诊断）。")
 
+    _ensure_storage_layout()
+    if "current_user" not in st.session_state:
+        st.session_state.current_user = "guest"
+    if "show_auth_page" not in st.session_state:
+        st.session_state.show_auth_page = False
+
     _purge_expired_history()
 
     try:
@@ -630,11 +908,25 @@ def main() -> None:
 
     # Sidebar: History + Settings button
     with st.sidebar:
+        if st.button("用户登录", use_container_width=True):
+            st.session_state.show_auth_page = not st.session_state.show_auth_page
+            if st.session_state.show_auth_page:
+                st.session_state.show_settings = False
+
+        st.markdown("---")
+
         if st.button("运行配置", use_container_width=True):
             st.session_state.show_settings = not st.session_state.show_settings
+            if st.session_state.show_settings:
+                st.session_state.show_auth_page = False
 
         st.markdown("---")
         _render_history_panel_sidebar()
+
+    # Auth page (overlay)
+    if st.session_state.show_auth_page:
+        _render_auth_page()
+        return
 
     # Settings page (overlay)
     if st.session_state.show_settings:
@@ -646,7 +938,11 @@ def main() -> None:
     if provider not in PROVIDER_LABELS:
         provider = PROVIDER_QWEN
     env_key = PROVIDER_ENV_KEY[provider]
-    local_model_dir = st.session_state.get("local_model_dir", os.getenv("LOCAL_MODEL_DIR", "artifacts"))
+    local_model_dir = st.session_state.get("local_model_dir", os.getenv("LOCAL_MODEL_DIR", "artifacts/multi_model_compare"))
+    local_model_arch = st.session_state.get("local_model_arch", os.getenv("LOCAL_MODEL_ARCH", "efficientnet_b0"))
+    effective_local_model_dir = _resolve_effective_local_model_dir(local_model_dir, local_model_arch)
+    st.session_state.local_model_effective_dir = effective_local_model_dir
+    os.environ["LOCAL_MODEL_DIR"] = effective_local_model_dir
     api_key = st.session_state.get("api_key", os.getenv(env_key, ""))
     model = st.session_state.get("model", PROVIDER_DEFAULTS[provider]["model"])
     base_url = st.session_state.get("base_url", PROVIDER_DEFAULTS[provider]["base_url"])
@@ -688,6 +984,7 @@ def main() -> None:
         st.stop()
 
     with st.spinner("模型推理中，请稍候..."):
+        _t0 = __import__("time").time()
         result, debug_errors = infer_with_provider(
             image_bytes=image_bytes,
             mime_type=mime_type,
@@ -699,6 +996,7 @@ def main() -> None:
             base_url=base_url,
             timeout=timeout,
         )
+        _elapsed = round(__import__("time").time() - _t0, 2)
 
     _append_history(
         symptom_text=symptom_text,
@@ -734,7 +1032,8 @@ def main() -> None:
     st.write(
         f"初步诊断：`{display_result['primary_diagnosis']}` | "
         f"置信度：`{display_result['confidence']}` | "
-        f"来源：`{display_result['source']}`"
+        f"来源：`{display_result['source']}` | "
+        f"耗时：`{_elapsed} 秒`"
     )
     st.info(display_result["note"])
 

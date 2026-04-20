@@ -12,7 +12,7 @@ def get_train_transform(image_size: int = DEFAULT_IMAGE_SIZE):
 
     return transforms.Compose(
         [
-            transforms.Resize((image_size, image_size)),
+            transforms.RandomResizedCrop(image_size, scale=(0.75, 1.0), ratio=(0.9, 1.1)),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
             transforms.ToTensor(),
@@ -42,6 +42,10 @@ def _try_load_pretrained_weights(arch: str, pretrained: bool):
             from torchvision.models import MobileNet_V3_Small_Weights
 
             return MobileNet_V3_Small_Weights.IMAGENET1K_V1
+        if arch == "efficientnet_b0":
+            from torchvision.models import EfficientNet_B0_Weights
+
+            return EfficientNet_B0_Weights.IMAGENET1K_V1
         if arch == "resnet18":
             from torchvision.models import ResNet18_Weights
 
@@ -60,9 +64,9 @@ def build_model(
     freeze_backbone: bool = True,
 ):
     from torch import nn
-    from torchvision.models import mobilenet_v3_small, resnet18
+    from torchvision.models import efficientnet_b0, mobilenet_v3_small, resnet18
 
-    if arch not in {"mobilenet_v3_small", "resnet18"}:
+    if arch not in {"mobilenet_v3_small", "resnet18", "efficientnet_b0"}:
         raise ValueError(f"Unsupported arch: {arch}")
 
     weights = _try_load_pretrained_weights(arch=arch, pretrained=pretrained)
@@ -72,6 +76,11 @@ def build_model(
         in_features = model.classifier[-1].in_features
         model.classifier[-1] = nn.Linear(in_features, num_classes)
         backbone_filter: Callable[[str], bool] = lambda name: name.startswith("features")
+    elif arch == "efficientnet_b0":
+        model = efficientnet_b0(weights=weights)
+        in_features = model.classifier[-1].in_features
+        model.classifier[-1] = nn.Linear(in_features, num_classes)
+        backbone_filter = lambda name: name.startswith("features")
     else:
         model = resnet18(weights=weights)
         in_features = model.fc.in_features

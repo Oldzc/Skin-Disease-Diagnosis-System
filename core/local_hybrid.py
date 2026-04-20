@@ -18,7 +18,7 @@ from core.local_model import (
     build_model,
     get_eval_transform,
 )
-from src.mock_engine import DISCLAIMER
+from core.mock_engine import DISCLAIMER
 
 DEFAULT_ARTIFACTS_DIR = "artifacts"
 MODEL_FILE = "local_model.pkl"
@@ -501,8 +501,8 @@ def local_hybrid_infer(
     symptom_text: str,
     labels: list[str],
     artifacts_dir: str | Path = DEFAULT_ARTIFACTS_DIR,
-    alpha: float = 0.7,
-    beta: float = 0.25,
+    alpha: float = 0.6,
+    beta: float = 0.35,
     gamma: float = 0.05,
     mode: str = "hybrid",
 ) -> dict[str, Any]:

@@ -1,0 +1,3 @@
+layer,num_samples,top1,top3,macro_f1,success_rate,schema_pass_rate,avg_latency_ms
+layer1_api,700,0.2571,0.6271,0.0512,0.9957,0.9957,5943.72
+layer2_local_hybrid,700,0.2657,0.5857,0.075,1.0,1.0,17.32

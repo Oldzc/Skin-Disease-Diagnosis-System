@@ -1,0 +1,4 @@
+arch,top1,top3,macro_f1,model_params,model_size_mb,inference_ms_per_image,train_seconds,best_epoch,best_macro_f1,fusion_top1,fusion_top3,fusion_macro_f1,metrics_path
+mobilenet_v3_small,0.6798,0.8551,0.6478,1540406,5.876,5.298,2421.0,23,0.6466,0.6738,0.9478,0.6733,D:\SCUT\毕业设计\Code\artifacts\multi_model_compare\mobilenet_v3_small\metrics.json
+resnet18,0.7354,0.8933,0.7079,11187798,42.678,2.44,2484.74,30,0.7079,0.7189,0.9419,0.72,D:\SCUT\毕业设计\Code\artifacts\multi_model_compare\resnet18\metrics.json
+efficientnet_b0,0.762,0.9107,0.7337,4035730,15.395,8.427,2259.19,21,0.7337,0.7509,0.9573,0.7502,D:\SCUT\毕业设计\Code\artifacts\multi_model_compare\efficientnet_b0\metrics.json

@@ -1,0 +1,82 @@
+{
+  "layer": "layer2_local_hybrid",
+  "skipped": false,
+  "summary": {
+    "num_samples": 700,
+    "top1": 0.2657,
+    "top3": 0.5857,
+    "macro_f1": 0.075,
+    "success_rate": 1.0,
+    "schema_pass_rate": 1.0,
+    "avg_latency_ms": 17.32
+  },
+  "per_dx": [
+    {
+      "dx": "akiec",
+      "num_samples": 100,
+      "top1": 0.22,
+      "top3": 0.61,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 17.616
+    },
+    {
+      "dx": "bcc",
+      "num_samples": 100,
+      "top1": 0.12,
+      "top3": 0.54,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 17.8986
+    },
+    {
+      "dx": "bkl",
+      "num_samples": 100,
+      "top1": 0.08,
+      "top3": 0.27,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 17.091099999999997
+    },
+    {
+      "dx": "df",
+      "num_samples": 100,
+      "top1": 0.07,
+      "top3": 0.35,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 16.9668
+    },
+    {
+      "dx": "mel",
+      "num_samples": 100,
+      "top1": 0.17,
+      "top3": 0.7,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 17.2547
+    },
+    {
+      "dx": "nv",
+      "num_samples": 100,
+      "top1": 0.61,
+      "top3": 0.79,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 17.1739
+    },
+    {
+      "dx": "vasc",
+      "num_samples": 100,
+      "top1": 0.59,
+      "top3": 0.84,
+      "success_rate": 1.0,
+      "schema_pass_rate": 1.0,
+      "avg_latency_ms": 17.2591
+    }
+  ],
+  "config": {
+    "mode": "image_only",
+    "artifacts_dir": "/content/drive/Othercomputers/MyComputer/Code/skin_disease_artifacts_export"
+  }
+}

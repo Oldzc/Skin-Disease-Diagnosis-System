@@ -2,9 +2,14 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from core.local_hybrid import (
     confusion_matrix,
@@ -13,16 +18,16 @@ from core.local_hybrid import (
     synthetic_symptom_for_label,
     topk_hit,
 )
-from src.mock_engine import load_class_labels, mock_infer, resolve_dataset_root
+from core.mock_engine import load_class_labels, mock_infer, resolve_dataset_root
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate old_mock vs image_only vs image+text_fusion")
     parser.add_argument("--dataset-root", type=str, default="Dataset/archive/SkinDisease")
-    parser.add_argument("--artifacts-dir", type=str, default="artifacts")
+    parser.add_argument("--artifacts-dir", type=str, default="artifacts/multi_model_compare/efficientnet_b0")
     parser.add_argument("--max-per-class", type=int, default=40)
     parser.add_argument("--symptom-mode", type=str, default="label_hint", choices=["label_hint", "empty"])
-    parser.add_argument("--output", type=str, default="artifacts/local_eval_report.json")
+    parser.add_argument("--output", type=str, default="artifacts/multi_model_compare/efficientnet_b0/local_eval_report.json")
     return parser.parse_args()
 
 

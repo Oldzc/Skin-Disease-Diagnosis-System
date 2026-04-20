@@ -59,15 +59,16 @@ $env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
    - 图像分支：MobileNetV3-Small（预训练 ImageNet，微调分类头）
    - 文本分支：基于规则的关键词/部位/病程/严重度/瘙痒/疼痛/诱因/皮损形态/复发/年龄加权打分
    - 先验分支：基于训练集类别分布
-   - 融合公式：`P_final = α·P_image + β·P_text + γ·P_prior`（默认 α=0.7, β=0.25, γ=0.05）
+   - 融合公式：`P_final = α·P_image + β·P_text + γ·P_prior`（默认 α=0.6, β=0.35, γ=0.05）
 3. **local_mock**（规则兜底）：纯关键词匹配 + 确定性哈希选择（当本地模型工件缺失时）
 
 ### 3. 历史记录管理
-- **本地存储**：`history.json` 记录每次推理的输入、结果、来源、时间
+- **本地存储**：`user_histories/<username>.json` 按用户分别记录推理输入、结果、来源、时间
+- **账号隔离**：每个用户仅查看和管理自己的历史记录（未登录使用 `guest` 账号）
 - **自动过期**：超过 7 天的记录自动清理
 - **侧边栏展示**：可展开卡片列表，显示诊断、置信度、症状、Top-3 候选
 - **关键词检索**：支持按诊断名（中英文）、症状文本、文件名模糊搜索
-- **一键清空**：清空全部历史按钮
+- **一键清空**：清空当前账号历史按钮
 
 ### 4. 隐私保护机制
 - **EXIF 剥离**：图像预处理时通过 `Image.frombytes()` 重建像素数据，彻底移除 GPS、拍摄时间、设备型号等敏感元数据
@@ -76,12 +77,13 @@ $env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
 
 ### 5. 用户界面
 - **主页面**：
-  - 左侧 sidebar：历史记录（搜索 + 可展开列表 + 清空按钮）
-  - 顶部：⚙️ 运行配置按钮（切换到设置页）
+  - 左侧 sidebar：用户登录按钮、运行配置按钮、历史记录（搜索 + 可展开列表 + 清空按钮）
+  - 顶部：登录按钮位于“运行配置”按钮上方
+  - 点击“用户登录”进入独立二级登录页（登录/注册/退出）
   - 中间：上传图片 + 结构化表单 + 隐私声明 + 开始分析 + 结果展示
 - **设置页面**（点击按钮进入）：
   - 数据集信息（只读）
-  - 本地模型配置（目录路径 + 工件检测状态）
+  - 本地模型配置（目录路径 + 本地推理网络选择 + 工件检测状态）
   - API 配置：选择提供商 → 填入对应 API Key → 模型名 / Base URL / 超时
   - 各提供商申请地址与说明
   - 配置自动保存到 session state
@@ -138,8 +140,11 @@ $env:GOOGLE_API_KEY="AIzaxxxxxxxxxxxxxxxx"
 # 指定默认提供商（可选，默认 qwen）
 $env:PREFERRED_PROVIDER="openai"   # qwen / openai / anthropic / gemini
 
-# 本地模型目录（默认 artifacts）
-$env:LOCAL_MODEL_DIR="artifacts"
+# 本地模型目录（默认 artifacts/multi_model_compare）
+$env:LOCAL_MODEL_DIR="artifacts/multi_model_compare"
+
+# 本地推理网络默认值（推荐 efficientnet_b0）
+$env:LOCAL_MODEL_ARCH="efficientnet_b0"
 ```
 
 ### 3. 启动应用
@@ -162,28 +167,46 @@ $env:LOCAL_MODEL_DIR="artifacts"
 & $env:PROJECT_PY scripts/train_local_model.py `
   --dataset-root Dataset/archive/SkinDisease `
   --artifacts-dir artifacts `
-  --arch mobilenet_v3_small `
-  --epochs 5 `
+  --arch efficientnet_b0 `
+  --epochs 30 `
   --batch-size 32 `
-  --lr 1e-3 `
-  --freeze-backbone
+  --lr 3e-4 `
+  --weight-decay 1e-4 `
+  --freeze-epochs 5 `
+  --imbalance-strategy class_weight `
+  --early-stop-patience 6 `
+  --use-amp
 ```
 
 ### 参数说明
 - `--dataset-root`：数据集根目录（需包含 train/ 和 test/ 子目录）
 - `--artifacts-dir`：输出目录（默认 artifacts）
-- `--arch`：模型架构（mobilenet_v3_small 或 resnet18）
-- `--epochs`：训练轮数
+- `--arch`：模型架构（`mobilenet_v3_small` / `resnet18` / `efficientnet_b0`）
+- `--epochs`：训练总轮数（默认 30）
 - `--batch-size`：批大小
-- `--lr`：学习率
-- `--freeze-backbone`：冻结预训练骨干网络，仅训练分类头（推荐）
+- `--lr`：学习率（默认 3e-4）
+- `--weight-decay`：权重衰减（默认 1e-4）
+- `--freeze-epochs`：前 N 轮冻结骨干网络，仅训练分类头（默认 5）
 - `--pretrained`：使用 ImageNet 预训练权重（默认开启）
+- `--imbalance-strategy`：类别不平衡策略（`class_weight` 或 `focal`）
+- `--focal-gamma`：Focal Loss 的 gamma（默认 2.0）
+- `--use-weighted-sampler`：可选按类别权重采样（默认关闭）
+- `--early-stop-patience`：早停耐心轮数（默认 6，监控 macro_f1）
+- `--use-amp`：GPU 混合精度训练（默认开启）
+- `--expected-num-classes`：期望类别数校验（默认 22）
+
+### Google Colab GPU 训练
+- 已提供 Notebook：`notebooks/colab_train_local_model.ipynb`
+- Notebook 按 8 段固定流程执行：环境准备 -> 挂载 Drive -> 数据检查 -> 训练配置 -> 训练 -> 评测 -> 导出工件 -> 下载/同步
+- Colab 训练完成后，将导出的 `local_model.pkl`、`label_map.json`、`metrics.json` 放回本地 `artifacts/` 即可被 `local_hybrid` 直接加载。
+- Notebook 现支持三模型自动对比：`mobilenet_v3_small`、`resnet18`、`efficientnet_b0`，并输出 `compare_summary.csv/json`、`compare_top1_macrof1.png`、`compare_size_latency.png`。
+- 新增融合权重扫描 Notebook：`notebooks/colab_fusion_weight_sweep.ipynb`（用于测试 `P_final = α·P_image + β·P_text + γ·P_prior` 的参数组合并导出 CSV/JSON/图表）。
 
 ### 训练产物
 训练完成后在 `artifacts/` 目录生成：
 - `local_model.pkl` — PyTorch 模型权重（~6MB）
 - `label_map.json` — 22 类标签映射
-- `metrics.json` — 训练指标（loss、accuracy、F1、混淆矩阵）
+- `metrics.json` — 训练指标（含 `best_epoch`、`best_macro_f1`、`class_weights`、`per_class_recall`、混淆矩阵等）
 - `train_manifest.csv` — 训练集清单（路径、标签、索引）
 - `test_manifest.csv` — 测试集清单
 
@@ -193,7 +216,7 @@ $env:LOCAL_MODEL_DIR="artifacts"
 ```powershell
 & $env:PROJECT_PY scripts/evaluate_local_methods.py `
   --dataset-root Dataset/archive/SkinDisease `
-  --artifacts-dir artifacts `
+  --artifacts-dir artifacts/multi_model_compare/efficientnet_b0 `
   --max-per-class 40 `
   --symptom-mode label_hint
 ```
@@ -205,10 +228,10 @@ $env:LOCAL_MODEL_DIR="artifacts"
   - `empty`：空文本（仅图像推理）
 
 ### 评测输出
-生成 `artifacts/local_eval_report.json`，包含三种方法的对比：
+生成 `artifacts/multi_model_compare/efficientnet_b0/local_eval_report.json`，包含三种方法的对比：
 1. **old_mock**：纯规则兜底（关键词匹配）
 2. **image_only**：仅图像分类（α=1.0, β=0, γ=0）
-3. **image_text_fusion**：图像+文本融合（α=0.7, β=0.25, γ=0.05）
+3. **image_text_fusion**：图像+文本融合（α=0.6, β=0.35, γ=0.05）
 
 评测指标：
 - `top1`：Top-1 准确率
@@ -216,23 +239,95 @@ $env:LOCAL_MODEL_DIR="artifacts"
 - `macro_f1`：宏平均 F1 分数
 - `confusion_matrix`：混淆矩阵
 
+### 结果可视化（单独脚本）
+```powershell
+& $env:PROJECT_PY scripts/plot_training_report.py `
+  --artifacts-dir artifacts `
+  --output-dir artifacts/figures
+```
+
+输出图像：
+- `artifacts/figures/training_curves.png`
+- `artifacts/figures/method_comparison.png`（若存在 `local_eval_report.json`）
+- `artifacts/figures/per_class_recall.png`
+
+### 三模型对比结果可视化（单独脚本）
+当你有 `skin_disease_artifacts_export_multi`（包含 `mobilenet_v3_small` / `resnet18` / `efficientnet_b0` 三个子目录）时，
+建议放入：`artifacts/multi_model_compare/`，然后运行：
+
+```powershell
+& $env:PROJECT_PY scripts/plot_multi_model_report.py `
+  --multi-artifacts-dir artifacts/multi_model_compare `
+  --output-dir artifacts/multi_model_compare/figures
+```
+
+输出：
+- `artifacts/multi_model_compare/compare_summary.json`
+- `artifacts/multi_model_compare/compare_summary.csv`
+- `artifacts/multi_model_compare/figures/compare_accuracy.png`
+- `artifacts/multi_model_compare/figures/compare_efficiency.png`
+- `artifacts/multi_model_compare/figures/compare_tradeoff.png`
+
+## 实验套件复现（第2-5项）
+
+说明：第1项（三模型选型对比）直接引用已完成结果  
+`artifacts/multi_model_compare/compare_summary.csv`，不重复训练。
+
+### 一键运行实验（输出 CSV + JSON）
+```powershell
+& $env:PROJECT_PY scripts/run_experiment_suite.py `
+  --dataset-root Dataset/archive/SkinDisease `
+  --artifacts-dir artifacts/multi_model_compare/efficientnet_b0 `
+  --output-dir artifacts/experiments `
+  --max-per-class 5 `
+  --seed 42
+```
+
+输出文件：
+- `artifacts/experiments/exp2_multimodal.csv/json`
+- `artifacts/experiments/exp3_prompt_json.csv/json`
+- `artifacts/experiments/exp4_robustness.csv/json`
+- `artifacts/experiments/exp5_ablation.csv/json`
+- `artifacts/experiments/experiment_summary.csv/json`
+
+若未设置 `QWEN_API_KEY`，API相关实验（第3/4/5项）会自动跳过，并在结果中写入 `skipped_reason`。
+
+### 生成实验图（第2-5项）
+```powershell
+& $env:PROJECT_PY scripts/plot_experiment_suite.py `
+  --experiments-dir artifacts/experiments `
+  --output-dir artifacts/experiments
+```
+
+输出图像：
+- `artifacts/experiments/exp2_multimodal_bar.png`
+- `artifacts/experiments/exp3_prompt_json_quality.png`
+- `artifacts/experiments/exp4_robustness_route.png`
+- `artifacts/experiments/exp5_ablation_impact.png`
+
 ## 项目结构
 
 ```
 Code/
 ├── app.py                      # Streamlit 主应用（增强版）
-├── history.json                # 历史记录（自动生成，7天过期）
+├── users.json                  # 本地用户信息（自动生成）
+├── user_histories/             # 按用户隔离的历史记录（自动生成，7天过期）
 ├── requirements.txt            # Python 依赖
 ├── core/                       # 核心推理模块
 │   ├── inference.py            #   统一推理入口（三级降级链）
 │   ├── local_hybrid.py         #   本地融合推理（图像+文本+先验）
+│   ├── mock_engine.py          #   本地规则兜底引擎
 │   └── local_model.py          #   模型构建 + 数据增强
-├── src/                        # 旧版模块（兼容保留）
-│   ├── inference.py            #   旧版推理（仅 API → mock）
-│   └── mock_engine.py          #   规则兜底引擎
 ├── scripts/
-│   ├── train_local_model.py   # 本地模型训练脚本
-│   └── evaluate_local_methods.py # 三种方法对比评测
+│   ├── train_local_model.py      # 本地模型训练脚本
+│   ├── evaluate_local_methods.py # 三种方法对比评测
+│   ├── run_experiment_suite.py   # 第2-5项实验一键编排
+│   ├── plot_experiment_suite.py  # 第2-5项实验图表输出
+│   ├── plot_training_report.py   # 单模型训练/评测图
+│   └── plot_multi_model_report.py # 三模型对比图
+├── notebooks/
+│   ├── colab_train_local_model.ipynb   # Colab GPU 训练流程
+│   └── colab_fusion_weight_sweep.ipynb # Colab 融合权重扫描实验
 ├── artifacts/                  # 训练产物（需先训练生成）
 │   ├── local_model.pkl         #   PyTorch 模型权重
 │   ├── label_map.json          #   标签映射
@@ -278,7 +373,7 @@ P_final = α * P_image + β * P_text + γ * P_prior
 - `P_image`：本地图像分类模型输出（MobileNetV3-Small）
 - `P_text`：文本规则引擎输出（多维度加权打分）
 - `P_prior`：训练集类别分布先验
-- 默认权重：α=0.7（图像主导），β=0.25（文本辅助），γ=0.05（先验平滑）
+- 默认权重：α=0.6（图像主导），β=0.35（文本辅助），γ=0.05（先验平滑）
 - 若症状文本为空，自动调整为 α=0.9, β=0.05, γ=0.05
 
 ## 注意事项
@@ -316,16 +411,23 @@ A:
 4. 增加训练数据并重新训练本地模型
 
 **Q: 历史记录存在哪里？**
-A: `history.json` 文件（项目根目录），超过 7 天自动清理，已在 `.gitignore` 中排除，不会上传到代码仓库
+A: `user_histories/<username>.json` 文件，按用户隔离存储；未登录用户使用 `guest.json`。超过 7 天会自动清理。
 
 **Q: 如何导出历史记录？**
-A: 直接复制 `history.json` 文件，或在侧边栏使用"清空全部历史"前手动备份
+A: 直接复制 `user_histories/<username>.json` 文件，或在侧边栏使用"清空当前账号历史"前手动备份
 
 **Q: 如何更换本地模型？**
 A: 
-1. 重新训练：`python scripts/train_local_model.py --arch resnet18 --epochs 10`
-2. 替换 `artifacts/local_model.pkl` 和 `artifacts/label_map.json`
+1. 重新训练：`python scripts/train_local_model.py --arch efficientnet_b0 --epochs 30 --freeze-epochs 5 --imbalance-strategy class_weight`
+2. 替换 `artifacts/multi_model_compare/efficientnet_b0/local_model.pkl` 和 `artifacts/multi_model_compare/efficientnet_b0/label_map.json`
 3. 重启应用
+
+**Q: 如何在页面里切换本地推理网络（MobileNet/ResNet/EfficientNet）？**
+A:
+1. 点击侧边栏"⚙️ 运行配置"。
+2. 在"本地模型配置"里设置"本地模型目录"（例如 `artifacts/multi_model_compare`）。
+3. 在"本地推理网络"下拉框选择：`MobileNetV3-Small` / `ResNet18` / `EfficientNet-B0` / `自动`。
+4. 页面会显示"当前生效模型目录"；若该目录下工件缺失会自动回退 `local_mock`。
 
 **Q: 如何切换大模型提供商？**
 A: 点击侧边栏"⚙️ 运行配置"，在"模型提供商"下拉框中选择，填入对应 API Key 即可
@@ -343,6 +445,56 @@ A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
 - 否定信号（negated_signals）
 - 图像模型信息
 
+## 开源上传指南
+
+上传到 GitHub / Gitee 等开源平台前，请确认以下检查项：
+
+### 必须排除的文件（已在 `.gitignore` 中配置）
+- `.env` — 包含真实 API Key
+- `users.json` — 本地用户信息
+- `user_histories/` — 按用户隔离的历史记录
+- `artifacts/multi_model_compare/*/local_model.pkl` — 模型权重文件
+- `artifacts/multi_model_compare/*/train_manifest.csv` / `test_manifest.csv` — 数据集路径清单
+- `Dataset/` — 数据集目录（体积大）
+- `.vscode/` / `.claude/` — 本地 IDE 配置
+
+### 可以上传的文件
+- 所有 `.py` 源代码
+- `artifacts/multi_model_compare/*/label_map.json` — 标签映射（无隐私）
+- `artifacts/multi_model_compare/*/metrics.json` — 训练指标（无隐私）
+- `.env.example` — API Key 配置模板
+- `requirements.txt` — 依赖列表
+- `README.md` — 项目文档
+- `.gitignore` — 排除规则
+
+### 初始化 Git 仓库并上传
+
+```bash
+# 1. 初始化仓库
+git init
+git add .
+git commit -m "Initial commit: skin disease screening prototype"
+
+# 2. 关联远程仓库（以 GitHub 为例）
+git remote add origin https://github.com/your-username/your-repo.git
+git branch -M main
+git push -u origin main
+```
+
+### 上传前最终检查
+
+```bash
+# 确认 .env 不在暂存区
+git status
+
+# 确认 users.json / user_histories 不在暂存区（应显示为 ignored）
+git check-ignore -v users.json
+git check-ignore -v user_histories/test.json
+
+# 查看将要上传的文件列表
+git ls-files
+```
+
 ## 更新日志
 
 ### v2.1（当前版本）
@@ -350,6 +502,7 @@ A: 结果页面底部展开"决策轨迹（decision_trace）"，包含：
 - ✨ 新增 `.gitignore` 和 `.env.example`，支持安全开源上传
 - 🔧 重构推理引擎为统一 `infer_with_provider()` 接口
 - 🔧 设置页面新增提供商选择和各平台申请说明
+- ✨ 新增用户登录/注册与按用户隔离历史记录（`users.json` + `user_histories/`）
 
 ### v2.0
 - ✨ 新增结构化症状输入（8 个字段）
