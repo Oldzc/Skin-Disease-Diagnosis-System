@@ -1,4 +1,4 @@
-# 皮肤疾病初筛系统（毕业设计原型）
+# 皮肤疾病初筛系统
 
 ## 1. 项目简介
 本项目实现了一个“**皮肤图像 + 症状信息 -> 结构化初筛结果**”的多层诊断原型系统，定位为教学/科研用途的辅助筛查工具，不用于临床确诊。
@@ -61,24 +61,13 @@
 - scikit-learn / matplotlib / Pillow
 - requests
 
-依赖见 [requirements.txt](D:\SCUT\毕业设计\Code\requirements.txt)。
+依赖见 [requirements.txt]。
 
 ---
 
 ## 4. 环境与安装（Windows）
 
-### 4.1 固定 Python 环境（本项目当前约定）
-```powershell
-$env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
-& $env:PROJECT_PY --version
-```
-
-若你未设置 `PROJECT_PY`，请直接使用完整路径执行命令：
-```powershell
-& "D:\anaconda3\envs\env_disease_detect_1\python.exe" -m pip install -r requirements.txt
-```
-
-### 4.2 安装依赖
+### 4.1 安装依赖
 ```powershell
 & $env:PROJECT_PY -m pip install -r requirements.txt
 ```
@@ -228,7 +217,7 @@ $env:LOCAL_MODEL_ARCH="efficientnet_b0"   # mobilenet_v3_small / resnet18 / effi
   --seed 42
 ```
 
-### 8.2 绘制 Exp1~Exp7 论文图
+### 8.2 绘制 Exp1~Exp7
 ```powershell
 & $env:PROJECT_PY scripts/plot_experiment_summary.py `
   --summary-csv artifacts/experiment_summary.csv `
@@ -294,44 +283,14 @@ Code/
 
 ---
 
-## 11. 常见问题（FAQ）
-
-### Q1. PowerShell 报错：`& $env:PROJECT_PY ...` 无效对象
-原因：`PROJECT_PY` 未设置。  
-解决：
-```powershell
-$env:PROJECT_PY="D:\anaconda3\envs\env_disease_detect_1\python.exe"
-& $env:PROJECT_PY --version
-```
-或者直接用完整路径执行命令。
-
-### Q2. 明明配了 API Key，却显示 missing
-请确认在**当前终端会话**内设置，并用下面命令检查：
-```powershell
-echo $env:QWEN_API_KEY
-```
-
-### Q3. Qwen API 报图像尺寸错误（宽/高过小）
-系统主流程已做 512x512 预处理；如果你单独调 API，请确保图像尺寸 > 10x10。
-
-### Q4. API 不稳定时怎么办
-系统会自动降级到 `local_hybrid`，再降到 `local_mock`，确保可演示。
-
-### Q5. 如何快速验证 Qwen API 连通性
-```powershell
-& $env:PROJECT_PY scripts/smoke_test_qwen_api.py
-```
-
----
-
-## 12. 合规声明
+## 11. 合规声明
 - 本项目仅用于教学与科研演示，不构成医疗建议。
 - 输出结果为“辅助筛查”，不能替代医生诊断。
 - 使用外部 API 时请遵守对应平台的服务条款与数据规范。
 
 ---
 
-## 13. 版本说明（简）
+## 12. 版本说明（简）
 - **v2.2（当前）**：完成 Exp1~Exp7 实验整合、统一实验图表流程、三模型训练曲线输出、登录与用户隔离历史记录。
 - **v2.0**：结构化症状输入、隐私同意、三级降级链、local_hybrid 融合推理。
 - **v1.0**：最小可运行演示链路（图片+文本->结构化结果）。
